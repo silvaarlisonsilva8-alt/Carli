@@ -494,13 +494,20 @@ async function loadProfile(uid){
 }
 
 // ─── Auth state ───────────────────────────────────
+let authResolved = false;
+
+// Timeout forçado — se Supabase demorar mais de 3s vai pro login
 const splashTimeout = setTimeout(()=>{
-  if(document.getElementById('splash-screen').classList.contains('active')){
+  if(!authResolved){
+    authResolved = true;
     showScreen('auth-screen');
   }
-}, 5000);
+}, 3000);
 
-supabase.auth.onAuthStateChange(async (event, session)=>{
+// Tenta pegar sessão existente imediatamente
+supabase.auth.getSession().then(async ({ data: { session } })=>{
+  if(authResolved) return;
+  authResolved = true;
   clearTimeout(splashTimeout);
   if(session?.user){
     currentUser = session.user;
@@ -516,6 +523,24 @@ supabase.auth.onAuthStateChange(async (event, session)=>{
     showScreen('feed-screen');
   } else {
     showScreen('auth-screen');
+  }
+});
+
+supabase.auth.onAuthStateChange(async (event, session)=>{
+  if(!authResolved){ authResolved = true; clearTimeout(splashTimeout); }
+  if(event === 'SIGNED_OUT'){ showScreen('auth-screen'); return; }
+  if(session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')){
+    currentUser = session.user;
+    if(currentUser.is_anonymous){
+      currentProfile = { name:'Visitante', handle:'visitante', avatar:'👁️', guest:true };
+    } else {
+      currentProfile = await loadProfile(currentUser.id);
+      if(!currentProfile){
+        currentProfile = { name: currentUser.email?.split('@')[0]||'Usuário', handle: currentUser.email?.split('@')[0]||'user', avatar:'🎬', guest:false };
+      }
+    }
+    subscribeFeed();
+    showScreen('feed-screen');
   }
 });
 
